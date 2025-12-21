@@ -1,0 +1,105 @@
+# 1) Voordeur bypass
+- id: paradox_voordeur_bypass
+  alias: "Paradox – Voordeur Bypass"
+  mode: restart
+  trigger:
+    - platform: state
+      entity_id: input_boolean.voordeur_bypass
+  action:
+    - service: mqtt.publish
+      data:
+        topic: paradox/control/zones/Voordeur
+        payload: "{{ 'bypass' if trigger.to_state.state == 'on' else 'clear_bypass' }}"
+
+# 2) Skuifdeur Kombuis bypass
+- id: paradox_skuifdeur_komb_bypass
+  alias: "Paradox – Skuifdeur Kombuis Bypass"
+  mode: restart
+  trigger:
+    - platform: state
+      entity_id: input_boolean.skuifdeur_komb_bypass
+  action:
+    - service: mqtt.publish
+      data:
+        topic: paradox/control/zones/SkuifDeur_Komb
+        payload: "{{ 'bypass' if trigger.to_state.state == 'on' else 'clear_bypass' }}"
+
+# 3) Skuifdeur Braai bypass
+- id: paradox_skuifdeur_braai_bypass
+  alias: "Paradox – Skuifdeur Braai Bypass"
+  mode: restart
+  trigger:
+    - platform: state
+      entity_id: input_boolean.skuifdeur_braai_bypass
+  action:
+    - service: mqtt.publish
+      data:
+        topic: paradox/control/zones/SkuifDeur_Braai
+        payload: "{{ 'bypass' if trigger.to_state.state == 'on' else 'clear_bypass' }}"
+
+# 4) Inrit bypass
+- id: paradox_inrit_bypass
+  alias: "Paradox – Inrit Bypass"
+  mode: restart
+  trigger:
+    - platform: state
+      entity_id: input_boolean.inrit_bypass
+  action:
+    - service: mqtt.publish
+      data:
+        topic: paradox/control/zones/Inrit
+        payload: "{{ 'bypass' if trigger.to_state.state == 'on' else 'clear_bypass' }}"
+
+# 5) Agterjaard bypass
+- id: paradox_agterjaard_bypass
+  alias: "Paradox – Agterjaard Bypass"
+  mode: restart
+  trigger:
+    - platform: state
+      entity_id: input_boolean.agterjaard_bypass
+  action:
+    - service: mqtt.publish
+      data:
+        topic: paradox/control/zones/Agterjaard
+        payload: "{{ 'bypass' if trigger.to_state.state == 'on' else 'clear_bypass' }}"
+
+# 6) Clear all bypasses when disarmed
+- id: paradox_clear_bypass_on_disarm
+  alias: "Paradox – Clear Bypass on Disarm"
+  mode: single
+  trigger:
+    - platform: state
+      entity_id: alarm_control_panel.mg5050_partition_huis
+      to: "disarmed"
+  action:
+    # Turn toggles OFF in HA
+    - service: input_boolean.turn_off
+      target:
+        entity_id:
+          - input_boolean.voordeur_bypass
+          - input_boolean.skuifdeur_komb_bypass
+          - input_boolean.skuifdeur_braai_bypass
+          - input_boolean.inrit_bypass
+          - input_boolean.agterjaard_bypass
+
+    # Tell Paradox to clear bypass on all zones
+    - service: mqtt.publish
+      data:
+        topic: paradox/control/zones/Voordeur
+        payload: "clear_bypass"
+    - service: mqtt.publish
+      data:
+        topic: paradox/control/zones/SkuifDeur_Komb
+        payload: "clear_bypass"
+    - service: mqtt.publish
+      data:
+        topic: paradox/control/zones/SkuifDeur_Braai
+        payload: "clear_bypass"
+    - service: mqtt.publish
+      data:
+        topic: paradox/control/zones/Inrit
+        payload: "clear_bypass"
+    - service: mqtt.publish
+      data:
+        topic: paradox/control/zones/Agterjaard
+        payload: "clear_bypass"

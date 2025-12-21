@@ -1,0 +1,355 @@
+################################################################################
+# ALARM PACKAGE – Paradox MG5050 + HA logic
+################################################################################
+
+group:
+  alarm_doors:
+    name: Alarm Doors / Perimeter
+    entities:
+      - binary_sensor.mg5050_zone_voordeur_open
+      - binary_sensor.mg5050_zone_leef_area_open
+      - binary_sensor.mg5050_zone_panic_open
+      - binary_sensor.mg5050_zone_skuifdeur_komb_open
+      - binary_sensor.mg5050_zone_skuifdeur_braai_open
+      - binary_sensor.mg5050_zone_inrit_open
+      - binary_sensor.mg5050_zone_agterjaard_open
+
+  alarm_motions:
+    name: Alarm Motions (PIRs)
+    entities:
+      - binary_sensor.mg5050_zone_hoof_slaap_pir_open
+      - binary_sensor.mg5050_zone_braai_pir_open
+      - binary_sensor.mg5050_zone_tv_pir_open
+      - binary_sensor.mg5050_zone_gang_pir_open
+
+  away_mode_power_off:
+    name: Away Mode - Power Off
+    entities:
+      - light.shellydimmer2_48e7296c543a
+      - light.living_room_lights
+      - switch.living_room_power
+      - switch.sonoff_100067b9cb
+      - switch.sonoff_10006ac113
+      - switch.sonoff_1000aafdfb
+
+########################
+# HELPERS
+########################
+
+input_boolean:
+  alarm_notify_mobile:
+    name: Alarm – Send Mobile Notifications
+    icon: mdi:bell
+
+  alarm_night_mode:
+    name: Alarm – Night Mode Enabled
+    icon: mdi:weather-night
+
+  alarm_auto_arm_night:
+    name: Alarm – Auto Arm at Night
+    icon: mdi:shield-moon
+
+input_text:
+  alarm_last_triggered_sensor:
+    name: Alarm – Last Triggered Sensor
+    max: 80
+
+  paradox_last_user:
+    name: "Paradox – Last User"
+    max: 64
+
+########################
+# TEMPLATE SENSORS
+########################
+
+template:
+
+  - binary_sensor:
+
+      - name: "Alarm Any Door Open"
+        unique_id: alarm_any_door_open
+        icon: mdi:door-open
+        state: >
+          {{ expand('group.alarm_doors')
+             | selectattr('state','eq','on')
+             | list
+             | length > 0 }}
+
+      - name: "Alarm Any Motion Active"
+        unique_id: alarm_any_motion_active
+        icon: mdi:run
+        state: >
+          {{ expand('group.alarm_motions')
+             | selectattr('state','eq','on')
+             | list
+             | length > 0 }}
+
+  - sensor:
+
+      - name: "Alarm Open Doors Count"
+        unique_id: alarm_open_doors_count
+        icon: mdi:counter
+        unit_of_measurement: "doors"
+        state: >
+          {{ expand('group.alarm_doors')
+             | selectattr('state','eq','on')
+             | list
+             | length }}
+
+      - name: "Alarm Last Opened Door"
+        unique_id: alarm_last_opened_door
+        icon: mdi:door
+        state: >
+          {% set open_doors = expand('group.alarm_doors')
+                | selectattr('state','eq','on')
+                | sort(attribute='last_changed', reverse=True)
+                | list %}
+          {{ open_doors[0].name if open_doors|length > 0 else 'None' }}
+
+########################
+# AUTOMATIONS
+########################
+
+automation:
+
+  - id: alarm_notify_on_armed
+    alias: "Alarm – Notify when Armed"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: alarm_control_panel.mg5050_partition_huis
+        from: disarmed
+        to:
+          - arming
+          - armed_home
+          - armed_away
+          - armed_night
+    condition:
+      - condition: state
+        entity_id: input_boolean.alarm_notify_mobile
+        state: "on"
+    action:
+      - variables:
+          paradox_user: "{{ states('input_text.paradox_last_user') }}"
+          ha_actor: >
+            {% set attrs = trigger.to_state.attributes %}
+            {% set panel_user = attrs.changed_by if 'changed_by' in attrs else none %}
+            {% set uid = trigger.to_state.context.user_id %}
+            {% set person = none %}
+            {% if uid %}
+              {% set persons = states.person
+                  | selectattr('attributes.user_id', '==', uid)
+                  | list %}
+              {% if persons %}
+                {% set person = persons[0] %}
+              {% endif %}
+            {% endif %}
+            {% if panel_user not in [none, '', 'None'] %}
+              {{ panel_user }}
+            {% elif person %}
+              {{ person.name }}
+            {% elif uid %}
+              Unknown HA user
+            {% else %}
+              System / automation
+            {% endif %}
+          actor: >
+            {% set p = paradox_user %}
+            {% if 'Armed' in p %}
+              {{ p }}
+            {% else %}
+              {{ ha_actor }}
+            {% endif %}
+          open_zones: >
+            {{ expand('group.alarm_doors')
+                | selectattr('state','eq','on')
+                | map(attribute='name')
+                | list }}
+          tstamp: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - service: notify.family_phones
+        data:
+          title: "🔐 Alarm Armed"
+          message: >
+            Alarm state: {{ trigger.to_state.state }} at {{ tstamp }}.
+            By: {{ actor }}.
+            Zones open at arming:
+            {{ open_zones | join(', ') if open_zones else 'None' }}.
+
+  - id: alarm_notify_on_disarmed
+    alias: "Alarm – Notify when Disarmed"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: alarm_control_panel.mg5050_partition_huis
+        to: disarmed
+    condition:
+      - condition: state
+        entity_id: input_boolean.alarm_notify_mobile
+        state: "on"
+    action:
+      - variables:
+          paradox_user: "{{ states('input_text.paradox_last_user') }}"
+          ha_actor: >
+            {% set attrs = trigger.to_state.attributes %}
+            {% set panel_user = attrs.changed_by if 'changed_by' in attrs else none %}
+            {% set uid = trigger.to_state.context.user_id %}
+            {% set person = none %}
+            {% if uid %}
+              {% set persons = states.person
+                  | selectattr('attributes.user_id', '==', uid)
+                  | list %}
+              {% if persons %}
+                {% set person = persons[0] %}
+              {% endif %}
+            {% endif %}
+            {% if panel_user not in [none, '', 'None'] %}
+              {{ panel_user }}
+            {% elif person %}
+              {{ person.name }}
+            {% elif uid %}
+              Unknown HA user
+            {% else %}
+              System / automation
+            {% endif %}
+          actor: >
+            {% set p = paradox_user %}
+            {% if 'Disarmed' in p %}
+              {{ p }}
+            {% else %}
+              {{ ha_actor }}
+            {% endif %}
+          tstamp: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - service: notify.family_phones
+        data:
+          title: "🔓 Alarm Disarmed"
+          message: >
+            Alarm was disarmed at {{ tstamp }}.
+            By: {{ actor }}.
+
+  - id: alarm_notify_on_trigger
+    alias: "Alarm – Notify on Trigger"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: alarm_control_panel.mg5050_partition_huis
+        to: triggered
+    condition:
+      - condition: state
+        entity_id: input_boolean.alarm_notify_mobile
+        state: "on"
+    action:
+      - variables:
+          tstamp: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+          paradox_user: "{{ states('input_text.paradox_last_user') }}"
+          active_doors: >
+            {% set ns = namespace(list=[]) %}
+            {% set t_now = as_timestamp(now()) %}
+            {% for e in expand('group.alarm_doors') %}
+              {% if e.state == 'on' and (t_now - as_timestamp(e.last_changed)) < 20 %}
+                {% set ns.list = ns.list + [e.name] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.list }}
+          active_motions: >
+            {% set ns = namespace(list=[]) %}
+            {% set t_now = as_timestamp(now()) %}
+            {% for e in expand('group.alarm_motions') %}
+              {% if e.state == 'on' and (t_now - as_timestamp(e.last_changed)) < 20 %}
+                {% set ns.list = ns.list + [e.name] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.list }}
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.alarm_last_triggered_sensor
+        data:
+          value: >
+            {% if active_doors %}
+              {{ active_doors[0] }}
+            {% elif active_motions %}
+              {{ active_motions[0] }}
+            {% else %}
+              Unknown zone
+            {% endif %}
+      - service: notify.family_phones
+        data:
+          title: "🚨 Alarm Triggered"
+          message: >
+            Alarm triggered at {{ tstamp }}.
+            Triggering zone: {{ states('input_text.alarm_last_triggered_sensor') }}.
+            {% if active_doors %}
+            Door zones (recent): {{ active_doors | join(', ') }}.
+            {% endif %}
+            {% if active_motions %}
+            Motion zones (recent): {{ active_motions | join(', ') }}.
+            {% endif %}
+            {% if paradox_user not in ['', 'None'] %}
+            Last Paradox event: {{ paradox_user }}.
+            {% endif %}
+
+  - id: alarm_auto_arm_night
+    alias: "Alarm – Auto Arm Night Mode"
+    mode: single
+    trigger:
+      - platform: time
+        at: "23:00:00"
+    condition:
+      - condition: state
+        entity_id: input_boolean.alarm_auto_arm_night
+        state: "on"
+      - condition: state
+        entity_id: alarm_control_panel.mg5050_partition_huis
+        state: "disarmed"
+      - condition: state
+        entity_id: binary_sensor.alarm_any_door_open
+        state: "off"
+    action:
+      - service: alarm_control_panel.alarm_arm_night
+        data:
+          entity_id: alarm_control_panel.mg5050_partition_huis
+          code: ""
+      - service: notify.family_phones
+        data:
+          title: "🌙 Alarm Auto-Armed (Night Mode)"
+          message: >
+            The alarm was automatically armed at
+            {{ now().strftime('%Y-%m-%d %H:%M:%S') }}.
+            All zones were closed.
+
+  - id: paradox_update_last_user
+    alias: "Paradox – Update Last User from Events"
+    mode: single
+    trigger:
+      - platform: mqtt
+        topic: "paradox/events/raw"
+    condition:
+      - condition: template
+        value_template: >
+          {% set j = trigger.payload_json %}
+          {{
+            (j.type == 'user' and ('arm' in j.tags or 'disarm' in j.tags)) or
+            (j.type == 'partition'
+              and j.get('property') == 'arm_with_remote'
+              and j.get('value') == true)
+          }}
+    action:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.paradox_last_user
+        data:
+          value: >
+            {% set j = trigger.payload_json %}
+            {% if j.type == 'user' %}
+              {% if 'disarm' in j.tags %}
+                {{ "Disarmed by " ~ j.name }}
+              {% elif 'arm' in j.tags %}
+                {{ "Armed by " ~ j.name }}
+              {% else %}
+                {{ j.name }}
+              {% endif %}
+            {% elif j.type == 'partition'
+                and j.get('property') == 'arm_with_remote' %}
+              {{ "Armed with remote (" ~ j.partition ~ ")" }}
+            {% else %}
+              {{ states('input_text.paradox_last_user') }}
+            {% endif %}

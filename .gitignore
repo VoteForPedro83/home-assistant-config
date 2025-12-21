@@ -1,0 +1,10 @@
+secrets.yaml
+.storage/
+home-assistant.log*
+home-assistant_v2.db*
+*.db
+*.db-shm
+*.db-wal
+.cloud
+HA_VERSION
+*.log

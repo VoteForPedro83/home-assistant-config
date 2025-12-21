@@ -1,0 +1,125 @@
+homeassistant:
+  packages: !include_dir_named packages
+
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+mqtt:
+  binary_sensor:
+    - name: "Paradox Trouble"
+      unique_id: paradox_trouble
+      state_topic: "paradox/states/system/troubles/trouble"
+      payload_on: "True"
+      payload_off: "False"
+      device_class: problem
+
+    - name: "Paradox AC Failure"
+      unique_id: paradox_ac_failure
+      state_topic: "paradox/states/system/troubles/ac_failure_trouble"
+      payload_on: "True"
+      payload_off: "False"
+      device_class: plug
+
+    - name: "Paradox Panel Low Battery"
+      unique_id: paradox_panel_low_battery
+      state_topic: "paradox/states/system/troubles/low_battery_trouble"
+      payload_on: "True"
+      payload_off: "False"
+      device_class: battery
+
+    - name: "Paradox RF Low Battery"
+      unique_id: paradox_rf_low_battery
+      state_topic: "paradox/states/system/troubles/rf_low_battery_trouble"
+      payload_on: "True"
+      payload_off: "False"
+      device_class: battery
+
+    - name: "Paradox Zone Supervision Trouble"
+      unique_id: paradox_zone_supervision
+      state_topic: "paradox/states/system/troubles/zone_supervision_trouble"
+      payload_on: "True"
+      payload_off: "False"
+      device_class: problem
+
+    - name: "Paradox Telephone Line Trouble"
+      unique_id: paradox_telephone_line
+      state_topic: "paradox/states/system/troubles/telephone_line"
+      payload_on: "True"
+      payload_off: "False"
+      device_class: connectivity
+
+    - name: "Paradox Communication Trouble"
+      unique_id: paradox_comm_trouble
+      state_topic: "paradox/states/system/troubles/communication_trouble"
+      payload_on: "True"
+      payload_off: "False"
+      device_class: connectivity
+
+template:
+  - binary_sensor:
+      - name: "Paradox System Fault"
+        unique_id: paradox_system_fault
+        state: >
+          {{
+            is_state('binary_sensor.paradox_trouble', 'on') or
+            is_state('binary_sensor.paradox_ac_failure', 'on') or
+            is_state('binary_sensor.paradox_panel_low_battery', 'on') or
+            is_state('binary_sensor.paradox_rf_low_battery', 'on') or
+            is_state('binary_sensor.paradox_zone_supervision', 'on') or
+            is_state('binary_sensor.paradox_telephone_line', 'on') or
+            is_state('binary_sensor.paradox_comm_trouble', 'on')
+          }}
+        icon: >
+          {% if is_state('binary_sensor.paradox_system_fault', 'on') %}
+          mdi:alert-circle
+          {% else %}
+          mdi:shield-check
+          {% endif %}
+
+
+notify:
+  - name: family_phones
+    platform: group
+    services:
+      - service: mobile_app_peder_foon
+      - service: mobile_app_stef_foon
+
+input_boolean:
+  voordeur_bypass:
+    name: Bypass Voordeur
+    icon: mdi:shield-key
+
+  skuifdeur_komb_bypass:
+    name: Bypass Skuifdeur Kombuis
+    icon: mdi:shield-key
+
+  skuifdeur_braai_bypass:
+    name: Bypass Skuifdeur Braai
+    icon: mdi:shield-key
+
+  inrit_bypass:
+    name: Bypass Inrit
+    icon: mdi:shield-key
+
+  agterjaard_bypass:
+    name: Bypass Agterjaard
+    icon: mdi:shield-key
+    
+input_select:
+  geyser_power_mode:
+    name: Geyser Power Mode
+    icon: mdi:water-boiler
+    options:
+      - Auto
+      - On
+      - Off
+    initial: Auto
+

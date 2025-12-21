@@ -1,0 +1,43 @@
+###############################################
+# TEMPLATE ALARM PANEL – PIN only for DISARM
+###############################################
+
+template:
+  - alarm_control_panel:
+      - name: "House Alarm"
+        unique_id: mg5050_secure_panel
+
+        # Mirror Paradox panel state
+        state: "{{ states('alarm_control_panel.mg5050_partition_huis') }}"
+
+        # Show keypad, but don't require code for ARM
+        code_format: number
+        code_arm_required: false   # <-- THIS is the key line
+
+        # ----- ARM AWAY: send Paradox PIN automatically -----
+        arm_away:
+          - service: alarm_control_panel.alarm_arm_away
+            data:
+              entity_id: alarm_control_panel.mg5050_partition_huis
+              code: "1234"          # <-- your Paradox PIN
+
+        # ----- ARM HOME -----
+        arm_home:
+          - service: alarm_control_panel.alarm_arm_home
+            data:
+              entity_id: alarm_control_panel.mg5050_partition_huis
+              code: "1234"
+
+        # ----- ARM NIGHT -----
+        arm_night:
+          - service: alarm_control_panel.alarm_arm_night
+            data:
+              entity_id: alarm_control_panel.mg5050_partition_huis
+              code: "1234"
+
+        # ----- DISARM: use the code entered by the user -----
+        disarm:
+          - service: alarm_control_panel.alarm_disarm
+            data:
+              entity_id: alarm_control_panel.mg5050_partition_huis
+              code: "{{ code }}"
