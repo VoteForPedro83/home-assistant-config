@@ -109,3 +109,6 @@ git_*.txt
 # Option B logs/locks
 git_pull.log
 .git_pull.lock
+
+# Local Option B secrets
+.optionb_env
