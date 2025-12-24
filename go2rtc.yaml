@@ -1,0 +1,13 @@
+streams:
+  kombuis:
+    - rtsp://HomeAssistant:Rikus2014@192.168.1.128:554/Streaming/Channels/201/
+  Inrit:
+    - rtsp://HomeAssistant:Rikus2014@192.168.1.128:554/Streaming/Channels/101/ 
+  Agter:
+    - rtsp://HomeAssistant:Rikus2014@192.168.1.128:554/Streaming/Channels/301/    
+
+api:
+  listen: ":1984"
+
+rtsp:
+  listen: ":8554"

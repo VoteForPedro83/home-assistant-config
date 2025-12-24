@@ -1,10 +1,107 @@
+# --- Home Assistant runtime ---
+.home-assistant.log*
+home-assistant.log*
+home-assistant_v2.db*
+.ha_run.lock
+.storage/
+
+# --- Python ---
+__pycache__/
+*.pyc
+
+# --- SSH / credentials ---
+.ssh/
+secrets.yaml
+
+# --- HA Supervisor / debug ---
+supervisor_logs.txt
+git_debug.txt
+git_diag.txt
+
+# --- Frontend generated assets (HACS / UI builds) ---
+www/community/**/*.gz
+www/community/**/*.map
+
+# --- OS / editor ---
+.DS_Store
+
+# --- Home Assistant secrets / sensitive ---
 secrets.yaml
 .storage/
+.cloud/
+.ssh/
+
+# --- Logs / DB ---
 home-assistant.log*
 home-assistant_v2.db*
 *.db
 *.db-shm
 *.db-wal
-.cloud
-HA_VERSION
 *.log
+
+# --- Python cache junk ---
+__pycache__/
+*.pyc
+
+# --- Optional: temp debug outputs ---
+git_diag.txt
+git_status.txt
+git_debug.txt
+supervisor_logs.txt
+
+# --- Home Assistant secrets / sensitive ---
+secrets.yaml
+.storage/
+.cloud/
+.ssh/
+
+# --- Logs / DB ---
+home-assistant.log*
+home-assistant_v2.db*
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# --- Python cache junk ---
+__pycache__/
+*.pyc
+
+# --- Optional: temp debug outputs ---
+git_diag.txt
+git_status.txt
+git_debug.txt
+supervisor_logs.txt
+
+# --- Home Assistant secrets / sensitive ---
+secrets.yaml
+.storage/
+.cloud/
+.ssh/
+
+# --- Logs / DB ---
+home-assistant.log*
+home-assistant_v2.db*
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# --- Python cache junk ---
+__pycache__/
+*.pyc
+
+# --- Optional: temp debug outputs ---
+git_diag.txt
+git_status.txt
+git_debug.txt
+supervisor_logs.txt
+
+# Home Assistant
+.HA_VERSION
+__pycache__/
+*.pyc
+
+# local debug logs
+_git_*.txt
+git_*.txt
