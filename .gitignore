@@ -105,3 +105,7 @@ __pycache__/
 # local debug logs
 _git_*.txt
 git_*.txt
+
+# Option B logs/locks
+git_pull.log
+.git_pull.lock
