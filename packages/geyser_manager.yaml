@@ -1,30 +1,23 @@
-###############################################################################
-# Geyser Manager (GitOps-friendly)
-# Controls: switch.geyser_contactor
-# Measures: sensor.thr316_temperature (pipe)
-# Alarm interlock: alarm_control_panel.partition_huis_alarm (armed_away -> OFF)
-#
-# Key idea:
-#   Estimated tank temp = pipe temp + offset
-# Because pipe readings are consistently lower than actual tank water.
-###############################################################################
-
-############################
-# DASHBOARD-EDITABLE SETTINGS
-############################
+############################################################
+# Geyser Manager (Package)
+# - Alarm interlock (armed_away => OFF)
+# - Night OFF window (default 20:00 -> 05:00)
+# - Morning preheat window (default 05:00 -> 06:30)
+# - Temperature control with offset + hysteresis
+############################################################
 
 input_boolean:
   geyser_manager_enabled:
-    name: Geyser manager enabled
+    name: "Geyser manager enabled"
     icon: mdi:water-boiler
 
   geyser_allow_preheat_during_night_off:
-    name: Allow preheat during night off window
+    name: "Allow preheat during night off window"
     icon: mdi:timer-check
 
 input_number:
   geyser_target_tank_temp:
-    name: Geyser target tank temperature (estimated)
+    name: "Geyser target tank temperature (estimated)"
     min: 45
     max: 70
     step: 0.5
@@ -33,57 +26,43 @@ input_number:
     icon: mdi:thermometer
 
   geyser_temp_hysteresis:
-    name: Geyser hysteresis
+    name: "Geyser hysteresis"
     min: 1
     max: 10
     step: 0.5
     unit_of_measurement: "°C"
     mode: slider
-    icon: mdi:thermometer-chevron-up
+    icon: mdi:chart-bell-curve-cumulative
 
   geyser_pipe_to_tank_offset:
-    name: Pipe→Tank offset (add to pipe temp)
-    min: 0
+    name: "Pipe → tank offset"
+    min: -5
     max: 20
     step: 0.5
     unit_of_measurement: "°C"
     mode: slider
-    icon: mdi:thermometer-plus
+    icon: mdi:swap-vertical
 
 input_datetime:
   geyser_night_off_time:
-    name: Geyser night OFF time
+    name: "Geyser night OFF time"
     has_date: false
     has_time: true
 
-  geyser_morning_preheat_start:
-    name: Geyser morning preheat START
+  geyser_preheat_start:
+    name: "Geyser preheat start"
     has_date: false
     has_time: true
 
-  geyser_morning_ready_time:
-    name: Geyser morning READY by (hard stop)
+  geyser_ready_by:
+    name: "Geyser ready by"
     has_date: false
     has_time: true
 
-############################
-# INTERNAL STATE (anti-chatter timing)
-############################
-
-input_datetime:
   geyser_last_on:
-    name: Geyser last switched ON
+    name: "Geyser last ON"
     has_date: true
     has_time: true
-
-  geyser_last_off:
-    name: Geyser last switched OFF
-    has_date: true
-    has_time: true
-
-############################
-# DERIVED SENSORS
-############################
 
 template:
   - sensor:
@@ -92,146 +71,80 @@ template:
         unit_of_measurement: "°C"
         device_class: temperature
         state: >
-          {% set pipe = states('sensor.thr316_temperature') %}
-          {% if pipe in ['unknown','unavailable','none'] %}
+          {% set t = states('sensor.thr316_temperature') %}
+          {% set o = states('input_number.geyser_pipe_to_tank_offset') %}
+          {% if t in ['unknown','unavailable','none',''] or o in ['unknown','unavailable','none',''] %}
             {{ 'unknown' }}
           {% else %}
-            {{ (pipe | float + states('input_number.geyser_pipe_to_tank_offset') | float) | round(1) }}
+            {{ (t|float + o|float) | round(1) }}
           {% endif %}
 
   - binary_sensor:
-      - name: "Geyser night off window"
-        unique_id: geyser_night_off_window
+      - name: "Geyser night off active"
+        unique_id: geyser_night_off_active
         state: >
-          {% set off_t = states('input_datetime.geyser_night_off_time') %}
-          {% set preheat_t = states('input_datetime.geyser_morning_preheat_start') %}
-          {% if off_t in ['unknown','unavailable','none'] or preheat_t in ['unknown','unavailable','none'] %}
+          {% set night = states('input_datetime.geyser_night_off_time') %}
+          {% set preheat = states('input_datetime.geyser_preheat_start') %}
+          {% if night in ['unknown','unavailable','none',''] or preheat in ['unknown','unavailable','none',''] %}
             false
           {% else %}
-            {% set now_t = now().strftime('%H:%M:%S') %}
-            {# Window spans OFF -> PREHEAT, may cross midnight #}
-            {% if off_t <= preheat_t %}
-              {{ off_t <= now_t and now_t < preheat_t }}
-            {% else %}
-              {{ now_t >= off_t or now_t < preheat_t }}
+            {% set start = today_at(night) %}
+            {% set end = today_at(preheat) %}
+            {# Handle crossing midnight: end may be tomorrow #}
+            {% if end <= start %}
+              {% set end = end + timedelta(days=1) %}
             {% endif %}
+            {% set nowt = now() %}
+            {{ nowt >= start and nowt < end }}
           {% endif %}
 
-############################
-# AUTOMATIONS
-############################
+      - name: "Geyser preheat window active"
+        unique_id: geyser_preheat_window_active
+        state: >
+          {% set preheat = states('input_datetime.geyser_preheat_start') %}
+          {% set ready = states('input_datetime.geyser_ready_by') %}
+          {% if preheat in ['unknown','unavailable','none',''] or ready in ['unknown','unavailable','none',''] %}
+            false
+          {% else %}
+            {% set start = today_at(preheat) %}
+            {% set end = today_at(ready) %}
+            {% if end <= start %}
+              {% set end = end + timedelta(days=1) %}
+            {% endif %}
+            {% set nowt = now() %}
+            {{ nowt >= start and nowt < end }}
+          {% endif %}
 
 automation:
-
-  ###########################################################################
-  # A) FORCE OFF when HOUSE partition is armed_away OR manager disabled
-  ###########################################################################
-  - id: geyser_force_off_alarm_away_or_disabled
-    alias: "Geyser: force OFF when alarm Away or manager disabled"
+  ############################################################
+  # Stamp "last on" whenever geyser is turned on
+  ############################################################
+  - id: geyser_manager_stamp_last_on
+    alias: "Geyser manager – Stamp last ON"
     mode: single
     trigger:
       - platform: state
-        entity_id: alarm_control_panel.partition_huis_alarm
-        to: "armed_away"
-      - platform: state
-        entity_id: input_boolean.geyser_manager_enabled
-        to: "off"
+        entity_id: switch.geyser_contactor
+        to: "on"
     action:
-      - service: switch.turn_off
-        target:
-          entity_id: switch.geyser_contactor
-      - service: input_datetime.set_datetime
-        target:
-          entity_id: input_datetime.geyser_last_off
-        data:
-          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-
-  ###########################################################################
-  # B) NIGHT OFF at configured time (e.g. 20:00)
-  ###########################################################################
-  - id: geyser_night_off
-    alias: "Geyser: night OFF at set time"
-    mode: single
-    trigger:
-      - platform: time
-        at: input_datetime.geyser_night_off_time
-    condition:
-      - condition: state
-        entity_id: input_boolean.geyser_manager_enabled
-        state: "on"
-      - condition: template
-        value_template: >
-          {{ not is_state('alarm_control_panel.partition_huis_alarm', 'armed_away') }}
-    action:
-      - service: switch.turn_off
-        target:
-          entity_id: switch.geyser_contactor
-      - service: input_datetime.set_datetime
-        target:
-          entity_id: input_datetime.geyser_last_off
-        data:
-          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-
-  ###########################################################################
-  # C) MORNING PREHEAT START (turn ON)
-  ###########################################################################
-  - id: geyser_morning_preheat_start
-    alias: "Geyser: morning preheat START"
-    mode: single
-    trigger:
-      - platform: time
-        at: input_datetime.geyser_morning_preheat_start
-    condition:
-      - condition: state
-        entity_id: input_boolean.geyser_manager_enabled
-        state: "on"
-      - condition: template
-        value_template: >
-          {{ not is_state('alarm_control_panel.partition_huis_alarm', 'armed_away') }}
-    action:
-      - service: switch.turn_on
-        target:
-          entity_id: switch.geyser_contactor
       - service: input_datetime.set_datetime
         target:
           entity_id: input_datetime.geyser_last_on
         data:
           datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
 
-  ###########################################################################
-  # D) MORNING READY BY time (hard stop)
-  # Ensures heating doesn't continue beyond the ready-by time.
-  ###########################################################################
-  - id: geyser_morning_ready_stop
-    alias: "Geyser: stop heating at READY-by time"
-    mode: single
+  ############################################################
+  # Main control loop (priority-based)
+  ############################################################
+  - id: geyser_manager_control
+    alias: "Geyser manager – Control"
+    mode: restart
     trigger:
-      - platform: time
-        at: input_datetime.geyser_morning_ready_time
-    condition:
-      - condition: state
-        entity_id: input_boolean.geyser_manager_enabled
-        state: "on"
-    action:
-      - service: switch.turn_off
-        target:
-          entity_id: switch.geyser_contactor
-      - service: input_datetime.set_datetime
-        target:
-          entity_id: input_datetime.geyser_last_off
-        data:
-          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      # periodic check to keep it responsive even if some entities don't fire
+      - platform: time_pattern
+        minutes: "/1"
 
-  ###########################################################################
-  # E) TEMPERATURE CONTROL (estimated tank temp)
-  ###########################################################################
-  - id: geyser_temperature_control
-    alias: "Geyser: temperature control (estimated tank temp)"
-    mode: single
-
-    trigger:
-      - platform: state
-        entity_id: sensor.thr316_temperature
+      # react immediately to key state changes
       - platform: state
         entity_id:
           - input_boolean.geyser_manager_enabled
@@ -239,102 +152,124 @@ automation:
           - input_number.geyser_target_tank_temp
           - input_number.geyser_temp_hysteresis
           - input_number.geyser_pipe_to_tank_offset
-      - platform: state
-        entity_id: alarm_control_panel.partition_huis_alarm
+          - input_datetime.geyser_night_off_time
+          - input_datetime.geyser_preheat_start
+          - input_datetime.geyser_ready_by
+          - sensor.thr316_temperature
+          - alarm_control_panel.partition_huis_alarm
 
-    condition:
-      - condition: state
-        entity_id: input_boolean.geyser_manager_enabled
-        state: "on"
-      - condition: template
-        value_template: >
-          {{ states('sensor.geyser_estimated_tank_temperature') not in ['unknown','unavailable','none'] }}
-      - condition: template
-        value_template: >
-          {{ not is_state('alarm_control_panel.partition_huis_alarm', 'armed_away') }}
+    variables:
+      enabled: "{{ is_state('input_boolean.geyser_manager_enabled', 'on') }}"
+      alarm_state: "{{ states('alarm_control_panel.partition_huis_alarm') }}"
+      estimated: "{{ states('sensor.geyser_estimated_tank_temperature') }}"
+      target: "{{ states('input_number.geyser_target_tank_temp') | float(58) }}"
+      hyst: "{{ states('input_number.geyser_temp_hysteresis') | float(3) }}"
+      night_off_active: "{{ is_state('binary_sensor.geyser_night_off_active', 'on') }}"
+      preheat_active: "{{ is_state('binary_sensor.geyser_preheat_window_active', 'on') }}"
+      allow_preheat_in_night_off: "{{ is_state('input_boolean.geyser_allow_preheat_during_night_off', 'on') }}"
+      geyser_is_on: "{{ is_state('switch.geyser_contactor', 'on') }}"
 
     action:
-      - variables:
-          est: "{{ states('sensor.geyser_estimated_tank_temperature') | float }}"
-          target: "{{ states('input_number.geyser_target_tank_temp') | float }}"
-          hyst: "{{ states('input_number.geyser_temp_hysteresis') | float }}"
-          min_on_minutes: 10
-          min_off_minutes: 5
-          on_threshold: "{{ (target - hyst) | float }}"
-          off_threshold: "{{ target | float }}"
-          in_night_off: "{{ is_state('binary_sensor.geyser_night_off_window','on') }}"
-          allow_preheat: "{{ is_state('input_boolean.geyser_allow_preheat_during_night_off','on') }}"
-
-      # If in night-off window and preheat not allowed: force OFF
+      ########################################################
+      # 0) If manager disabled => OFF (fail safe)
+      ########################################################
       - choose:
           - conditions:
               - condition: template
-                value_template: "{{ in_night_off and not allow_preheat }}"
+                value_template: "{{ not enabled }}"
             sequence:
               - service: switch.turn_off
                 target:
                   entity_id: switch.geyser_contactor
-              - service: input_datetime.set_datetime
-                target:
-                  entity_id: input_datetime.geyser_last_off
-                data:
-                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-              - stop: "Night off window active"
+              - stop: "Manager disabled"
 
-      # Small stabilisation delay helps reduce pipe spikes
-      - delay: "00:02:00"
-
-      - variables:
-          est2: "{{ states('sensor.geyser_estimated_tank_temperature') | float }}"
-
-      # ON/OFF decision with minimum on/off time guards
+      ########################################################
+      # 1) Alarm interlock (highest priority)
+      ########################################################
       - choose:
-          # TURN OFF if >= target and has been ON long enough
           - conditions:
               - condition: template
-                value_template: "{{ est2 >= off_threshold }}"
-              - condition: state
-                entity_id: switch.geyser_contactor
-                state: "on"
-              - condition: template
-                value_template: >
-                  {% set t = states('input_datetime.geyser_last_on') %}
-                  {% if t in ['unknown','unavailable','none'] %}
-                    true
-                  {% else %}
-                    {{ (as_timestamp(now()) - as_timestamp(strptime(t, '%Y-%m-%d %H:%M:%S'))) / 60 >= min_on_minutes }}
-                  {% endif %}
+                value_template: "{{ alarm_state == 'armed_away' }}"
             sequence:
               - service: switch.turn_off
                 target:
                   entity_id: switch.geyser_contactor
-              - service: input_datetime.set_datetime
-                target:
-                  entity_id: input_datetime.geyser_last_off
-                data:
-                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+              - stop: "Alarm armed_away interlock"
 
-          # TURN ON if <= (target - hyst) and has been OFF long enough
+      ########################################################
+      # 2) Night OFF window (unless explicitly allowed)
+      ########################################################
+      - choose:
           - conditions:
               - condition: template
-                value_template: "{{ est2 <= on_threshold }}"
-              - condition: state
-                entity_id: switch.geyser_contactor
-                state: "off"
+                value_template: "{{ night_off_active and not allow_preheat_in_night_off }}"
+            sequence:
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.geyser_contactor
+              - stop: "Night OFF window active"
+
+      ########################################################
+      # Guard: If temperature unknown/unavailable, do nothing
+      ########################################################
+      - choose:
+          - conditions:
               - condition: template
-                value_template: >
-                  {% set t = states('input_datetime.geyser_last_off') %}
-                  {% if t in ['unknown','unavailable','none'] %}
-                    true
-                  {% else %}
-                    {{ (as_timestamp(now()) - as_timestamp(strptime(t, '%Y-%m-%d %H:%M:%S'))) / 60 >= min_off_minutes }}
-                  {% endif %}
+                value_template: "{{ estimated in ['unknown','unavailable','none',''] }}"
+            sequence:
+              - stop: "Estimated temperature not available"
+
+      ########################################################
+      # 3) Preheat window behaviour
+      #    Goal: be at/above target by 'ready_by', but still
+      #    obey cutoff (avoid overheating).
+      ########################################################
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ preheat_active }}"
+            sequence:
+              - choose:
+                  # If already at/above target -> OFF
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ (estimated|float) >= target }}"
+                    sequence:
+                      - service: switch.turn_off
+                        target:
+                          entity_id: switch.geyser_contactor
+
+                  # If below target -> ON
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ (estimated|float) < target }}"
+                    sequence:
+                      - service: switch.turn_on
+                        target:
+                          entity_id: switch.geyser_contactor
+              - stop: "Handled preheat window"
+
+      ########################################################
+      # 4) Normal temperature maintenance (outside preheat)
+      #    - ON if <= (target - hysteresis)
+      #    - OFF if >= target
+      #    - otherwise keep current state (anti-chatter)
+      ########################################################
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ (estimated|float) >= target }}"
+            sequence:
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.geyser_contactor
+
+          - conditions:
+              - condition: template
+                value_template: "{{ (estimated|float) <= (target - hyst) }}"
             sequence:
               - service: switch.turn_on
                 target:
                   entity_id: switch.geyser_contactor
-              - service: input_datetime.set_datetime
-                target:
-                  entity_id: input_datetime.geyser_last_on
-                data:
-                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+        default: []
