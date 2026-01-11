@@ -112,3 +112,6 @@ git_pull.log
 
 # Local Option B secrets
 .optionb_env
+
+# go2rtc rendered config (contains secrets)
+go2rtc.yaml
