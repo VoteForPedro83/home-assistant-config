@@ -5,8 +5,34 @@ LOG="/config/git_pull.log"
 REPO="/config"
 LOCK="/config/.git_pull.lock"
 SSH_KEY="/config/.ssh/id_ed25519"
+BRANCH="master"   # change to "main" if you ever switch branches
 
 ts() { date "+%Y-%m-%d %H:%M:%S"; }
+
+# Load local secrets (NOT committed)
+# /config/.optionb_env should contain:
+#   HA_URL="http://homeassistant:8123"
+#   HA_TOKEN="YOUR_LONG_LIVED_ACCESS_TOKEN"
+if [ -f /config/.optionb_env ]; then
+  # shellcheck disable=SC1091
+  . /config/.optionb_env
+fi
+
+notify_fail() {
+  # $1 = title, $2 = message
+  if [ -z "${HA_TOKEN:-}" ] || [ -z "${HA_URL:-}" ]; then
+    echo "$(ts) [WARN] Notification skipped (HA_TOKEN/HA_URL not set)" >> "$LOG"
+    return 0
+  fi
+
+  # Persistent notification (local, safe). Never fails the script.
+  curl -sS -X POST \
+    -H "Authorization: Bearer ${HA_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{\"title\":\"$1\",\"message\":\"$2\"}" \
+    "${HA_URL}/api/services/persistent_notification/create" \
+    >> "$LOG" 2>&1 || true
+}
 
 # Simple lock to avoid concurrent pulls
 if [ -e "$LOCK" ]; then
@@ -26,9 +52,6 @@ trap 'rm -f "$LOCK"' EXIT
 
 cd "$REPO"
 
-# Ensure we're on master (adjust if you use main)
-BRANCH="master"
-
 # Capture current commit for rollback
 PREV_COMMIT="$(git rev-parse HEAD)"
 echo "$(ts) [INFO] Current commit: $PREV_COMMIT" >> "$LOG"
@@ -36,8 +59,7 @@ echo "$(ts) [INFO] Current commit: $PREV_COMMIT" >> "$LOG"
 # Ensure SSH key is used (no key in repo)
 export GIT_SSH_COMMAND="ssh -i $SSH_KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
 
-# Update remote info & pull
-echo "$(ts) [INFO] Fetching origin..." >> "$LOG"
+echo "$(ts) [INFO] Fetching origin/$BRANCH..." >> "$LOG"
 git fetch origin "$BRANCH" >> "$LOG" 2>&1
 
 LOCAL="$(git rev-parse "$BRANCH")"
@@ -51,8 +73,13 @@ if [ "$LOCAL" = "$REMOTE" ]; then
   exit 0
 fi
 
-echo "$(ts) [INFO] Pulling changes..." >> "$LOG"
-git pull --ff-only origin "$BRANCH" >> "$LOG" 2>&1
+echo "$(ts) [INFO""] Pulling changes (ff-only)..." >> "$LOG"
+if ! git pull --ff-only origin "$BRANCH" >> "$LOG" 2>&1; then
+  echo "$(ts) [ERROR] git pull failed. Keeping repo at $PREV_COMMIT" >> "$LOG"
+  notify_fail "HA Git Pull: git pull FAILED" \
+    "git pull failed (ff-only). Repo remains at $PREV_COMMIT. See /config/git_pull.log"
+  exit 1
+fi
 
 NEW_COMMIT="$(git rev-parse HEAD)"
 echo "$(ts) [INFO] New commit: $NEW_COMMIT" >> "$LOG"
@@ -65,9 +92,12 @@ if ha core check >> "$LOG" 2>&1; then
   echo "$(ts) [INFO] Done." >> "$LOG"
 else
   echo "$(ts) [ERROR] Config check FAILED. Rolling back to $PREV_COMMIT" >> "$LOG"
+  notify_fail "HA Git Pull: Config FAILED (rolled back)" \
+    "Config check failed after pulling changes. Rolled back to $PREV_COMMIT. See /config/git_pull.log"
   git reset --hard "$PREV_COMMIT" >> "$LOG" 2>&1
   echo "$(ts) [INFO] Rollback complete. Restarting HA Core to recover..." >> "$LOG"
   ha core restart >> "$LOG" 2>&1
   echo "$(ts) [INFO] Recovery done." >> "$LOG"
   exit 1
 fi
+
