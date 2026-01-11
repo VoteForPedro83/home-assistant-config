@@ -19,21 +19,21 @@ template:
           - service: alarm_control_panel.alarm_arm_away
             data:
               entity_id: alarm_control_panel.mg5050_partition_huis
-              code: "1234"          # <-- your Paradox PIN
+              code: !secret alarm_pin # <-- your Paradox PIN
 
         # ----- ARM HOME -----
         arm_home:
           - service: alarm_control_panel.alarm_arm_home
             data:
               entity_id: alarm_control_panel.mg5050_partition_huis
-              code: "1234"
+              code: !secret alarm_pin
 
         # ----- ARM NIGHT -----
         arm_night:
           - service: alarm_control_panel.alarm_arm_night
             data:
               entity_id: alarm_control_panel.mg5050_partition_huis
-              code: "1234"
+              code: !secret alarm_pin
 
         # ----- DISARM: use the code entered by the user -----
         disarm:
