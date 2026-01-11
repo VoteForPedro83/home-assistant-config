@@ -62,7 +62,7 @@ render_go2rtc() {
 
 check_config_api() {
   # Uses the same endpoint as the HA UI "Check Configuration"
-  # POST /api/config/core/check_config -> {"result":"valid","errors":null} or {"result":"invalid","errors":"..."} :contentReference[oaicite:1]{index=1}
+  # POST /api/config/core/check_config -> {"result":"valid","errors":null} or {"result":"invalid","errors":"..."}
   if [ -z "${HA_TOKEN:-}" ] || [ -z "${HA_URL:-}" ]; then
     echo "$(ts) [ERROR] Cannot validate config: HA_URL/HA_TOKEN not set" >> "$LOG"
     return 2
@@ -86,7 +86,6 @@ check_config_api() {
     return 2
   fi
 
-  # Determine valid/invalid
   if printf "%s" "$body" | grep -q '"result"[[:space:]]*:[[:space:]]*"valid"'; then
     return 0
   fi
@@ -128,8 +127,11 @@ REMOTE="$(git rev-parse "origin/$BRANCH")"
 echo "$(ts) [INFO] Local:  $LOCAL" >> "$LOG"
 echo "$(ts) [INFO] Remote: $REMOTE" >> "$LOG"
 
+# NEW: Always ensure rendered files exist even if there are no changes to pull
 if [ "$LOCAL" = "$REMOTE" ]; then
-  echo "$(ts) [INFO] No changes to pull. Exiting." >> "$LOG"
+  echo "$(ts) [INFO] No changes to pull. Ensuring rendered files..." >> "$LOG"
+  render_go2rtc
+  echo "$(ts) [INFO] Exiting." >> "$LOG"
   exit 0
 fi
 
