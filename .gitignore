@@ -115,3 +115,6 @@ git_pull.log
 
 # go2rtc rendered config (contains secrets)
 go2rtc.yaml
+
+# Local go2rtc secrets
+.go2rtc_env
